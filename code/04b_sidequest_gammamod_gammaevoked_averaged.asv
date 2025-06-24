@@ -1,0 +1,130 @@
+%% turtles_gamma_analysis.m
+% Load turtles data, compute high-gamma power per condition, and plot
+
+close all
+clear
+restoredefaultpath
+
+% add FieldTrip and project paths
+addpath('/cluster/software/src/matlab_fieldtrip/fieldtrip-20240515');
+addpath('/cluster/VAST/bkybg-lab/Data/k12wm/Coding/00apis/NPMK/');
+addpath('/cluster/VAST/bkybg-lab/Data/k12wm/Coding/k12wm_preprocessing/functions/');
+addpath('/cluster/VAST/bkybg-lab/Data/k12wm/Coding/k12wm_analysis/functions/');
+ft_defaults
+
+root            = '/cluster/VAST/bkybg-lab/Data/k12wm';
+subjectListFile = fullfile('/cluster/VAST/bkybg-lab/Data/', 'project_repos', 'phzhr_turtles_av_ml', 'code', 'k12wm_loop_turtles.csv');
+subjects        = readcell(subjectListFile, 'Delimiter', ',', 'NumHeaderLines', 1);
+
+% time windows (ms at 1	kHz)
+timewin     = 1:7001;
+timewinbase = 400:485;
+
+% 30140	Hz bandpass
+[Bb, Ab] = butter(5, [30 140]/1000, 'bandpass');
+
+% which column in trialinfo holds the 14 condition ID
+condIdxCol = 7;
+
+M = cell(size(subjects,1),1);
+D = cell(size(subjects,1),1);
+% Read in all gamma modulated channel files and associated regions.
+for iSub = 1:size(subjects,1)
+    subj = subjects{iSub,1};
+    sess = subjects{iSub,2};
+    subjPath = fullfile(root, subj, [subj '_' sess]);
+    M{iSub} = load(fullfile(subjPath, [subj '_' sess 'gammamodchans.mat']), 'sigchans1_labels', 'sigchans2_labels',     ...
+                  'sigchans1', 'sigchans2', 'taskKey');
+    D{iSub} = load(fullfile(subjPath, [subj '_' sess '_1kft_notch_epoch_outliers_bip_demean.mat']), 'ftDemean');
+end
+
+% Find the unique list of regions represented in the gamma modulated
+% channels
+unique()
+
+% For each ROI, make 4 plots: Each plot uses the trialinfo to find the
+% trials for the particular stimulus, and uses the channels that are
+% gammamodulated in that ROI for that stimulus
+
+
+for iSub = 11:size(subjects,1)
+    subj = subjects{iSub,1};
+    sess = subjects{iSub,2};
+    fprintf('Processing %s_%s (%d/%d)\n', subj, sess, iSub, size(subjects,1));
+
+    subjPath = fullfile(root, subj, [subj '_' sess]);
+    try
+        D = load(fullfile(subjPath, [subj '_' sess '_1kft_notch_epoch_outliers_bip.mat']), 'ftBipolar');
+        L = load(fullfile(subjPath, [subj '_' sess '_labelsAnat.mat']),       'bipolarAnat');
+        M = load(fullfile(subjPath, [subj '_' sess 'gammamodchans.mat']),     ...
+                  'sigchans1', 'sigchans2', 'taskKey');
+    catch ME
+        warning('  skipped %s_%s: %s', subj, sess, ME.message);
+        continue;
+    end
+
+    ftBipolar   = D.ftBipolar;
+    bipolarAnat = L.bipolarAnat;
+    condNames   = M.taskKey;    % e.g. {'Color';'Orientation';'Tone';'NoiseDuration'}
+
+    nChans  = size(bipolarAnat,1);
+    nTrials = numel(ftBipolar.trial);
+    nTime   = size(ftBipolar.trial{1},2);
+
+    % reshape to [chan × time × trials]
+    data3d = nan(nChans, nTime, nTrials);
+    for t = 1:nTrials
+        data3d(:,:,t) = ftBipolar.trial{t}(1:nChans,:);
+    end
+
+    % compute high-gamma power (median-baseline)
+    wtepoch = nan(nChans, nTime, nTrials);
+    for ch = 1:nChans
+        for t = 1:nTrials
+            x = double(data3d(ch,:,t));
+            if any(isnan(x)), continue; end
+            h = filtfilt(Bb, Ab, x);
+            p = abs(hilbert(h)).^2;
+            wtepoch(ch,:,t) = p - median(p(timewinbase));
+        end
+    end
+
+    % get condition ID per trial
+    trialConds = ftBipolar.trialinfo(:, 7);
+    nConds     = numel(M.sigchans1);
+
+    % prepare colors
+    cmap = lines(nConds);
+
+    chans = cell(4,1); 
+
+    for cond = 1:4
+        chans{cond} = intersect(M.sigchans1{cond}, M.sigchans2{cond});
+    end
+
+    for cond = 1:4
+        for chanidx=1:size(chans{cond}, 2)
+            chan = chans{cond}(chanidx);
+            figure;
+            hold on
+            legendLabs = cell(1, 8);
+            clear temp
+            for cat=1:4
+                timewintrunc = 500:2000;  
+                temp=squeeze(wtepoch(chan,timewintrunc, trialConds==cat))';
+                            
+                x=nanmean(temp, 1);
+                Error=nanstd(temp, 0, 1);
+                
+                plot(timewintrunc,x)
+                n=sum(trialConds == cat); % number of correct for that target
+                patch([timewintrunc fliplr(timewintrunc) ],[x+Error./sqrt(n) fliplr(x-Error./sqrt(n))],cat,'faceAlpha',0.4), hold on
+                legendLabels{cat} = sprintf('Condition %d (n=%d)', cat, size(temp,1));
+            end
+            legend('', 'Turtle Color', '', 'Fish Orientation', '', 'Bird Tone', '', 'Snake Static');
+            title({[char(subj), ' GammaMod for ', condNames{cond, 2}], [' Channel:', num2str(chan), ' ', char(bipolarAnat.anatmacro1(chan))]});
+        end
+    end 
+end
+
+fprintf('Processing complete.\n');

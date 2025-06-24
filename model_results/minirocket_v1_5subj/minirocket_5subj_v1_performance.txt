@@ -1,0 +1,26 @@
+Top 5 subjects with most overlapping regions:
+Subjects: ('k12wm003', 'k12wm004', 'k12wm006', 'k12wm009', 'k12wm011')
+Number of shared regions: 9
+Shared Regions:
+ - ['L Middle Temporal Gyrus']
+ - ['L Fusiform Gyrus']
+ - ['L ParaHippocampal Gyrus']
+ - ['L Inferior Temporal Gyrus']
+ - ['L IFG (p Triangularis)']
+ - ['L Superior Temporal Gyrus']
+
+Note: L Insula, L Postcentral Gyrus, and Unknown removed due to not being in ROIs.
+
+
+Accuracy: 0.262
+Classification Report:
+              precision    recall  f1-score   support
+
+           1      0.248     0.226     0.237       358
+           2      0.267     0.191     0.223       356
+           3      0.268     0.382     0.315       364
+           4      0.264     0.249     0.256       366
+
+    accuracy                          0.262      1444
+   macro avg      0.262     0.262     0.258      1444
+weighted avg      0.262     0.262     0.258      1444
